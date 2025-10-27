@@ -49,7 +49,6 @@ struct AttrSlice<'a> {
 mod mapping;
 use mapping::*;
 
-
 pub fn decode_draco(
     p: &gltf::mesh::Primitive<'_>,
     document: &gltf::Document,
@@ -267,4 +266,54 @@ fn fill_primitive(
     return Ok(());
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
 
+    #[test]
+    fn test_decode_test_glb() -> Result<(), Box<dyn std::error::Error>> {
+        let path = "examples/test.glb";
+        let primitive = decode_test_glb(path)?;
+
+        // Validate positions
+        let positions = primitive.positions.ok_or("Missing positions attribute")?;
+        assert!(!positions.is_empty(), "Positions should not be empty");
+
+        // Validate texcoords (using channel 0)
+        let texcoords = primitive
+            .texcoords
+            .get(&0)
+            .ok_or("Missing texcoords[0] attribute")?;
+        assert!(!texcoords.is_empty(), "Texcoords should not be empty");
+
+        // Validate indices
+        assert!(!primitive.indices.is_empty(), "Indices should not be empty");
+
+        Ok(())
+    }
+
+    pub fn decode_test_glb(path: &str) -> Result<DecodedPrimitive, Box<dyn std::error::Error>> {
+        // Open the file safely
+        let mut file = std::fs::File::open(path)?;
+
+        // Read the glTF binary without validation
+        let glb = gltf::Gltf::from_reader_without_validation(&mut file)?;
+        let doc = glb.document;
+        let blob = glb.blob;
+
+        // Import all referenced buffers
+        let buffer_data = gltf::import_buffers(&doc, None, blob)?;
+
+        // Get the last mesh and primitive
+        let mesh = doc.meshes().last().ok_or("No meshes found in GLB")?;
+        let prim = mesh
+            .primitives()
+            .last()
+            .ok_or("No primitives found in mesh")?;
+
+        // Decode Draco data
+        let decoded = decode_draco(&prim, &doc, &buffer_data)?;
+
+        Ok(decoded)
+    }
+}
