@@ -13,11 +13,11 @@ commonly-used vertex attributes (positions, normals, tangents, texcoords, colors
 
 ## Adding to your project
 
-If this repository is published on crates.io, add the dependency like:
+This repository is not published on crates.io, add the dependency like:
 
 ```toml
 [dependencies]
-draco-gltf-rs = "0.1"
+draco-gltf-rs = { git = "https://github.com/Niki123456123456/draco-gltf-rs.git" }
 ```
 
 ## Basic usage
