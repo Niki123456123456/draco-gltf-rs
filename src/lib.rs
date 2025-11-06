@@ -72,7 +72,10 @@ pub fn decode_draco(
 
     let indices_accessor = p.indices().ok_or(DracoLoadError::NoIndicesAccessor)?;
     let index_count = indices_accessor.count();
-    let index_comp: gltf::accessor::DataType = indices_accessor.data_type();
+    let mut index_comp: gltf::accessor::DataType = indices_accessor.data_type();
+    if index_comp == gltf::accessor::DataType::U8 { // workaround because draco_decoder has not yet logic for u8
+        index_comp = gltf::accessor::DataType::U16;
+    }
     let index_bytes: usize = index_count * comp_size_bytes(index_comp);
 
     let infos = draco_decoder::mesh_attr_infos(draco_bytes);
@@ -128,17 +131,17 @@ fn get_buffer<'a>(
     buffers: &'a Vec<gltf::buffer::Data>,
     index: usize,
 ) -> Result<&'a [u8], DracoLoadError> {
-    let mut bvs = document.buffers();
-    let bv = bvs
+    let bv = document
+        .views()
         .find(|v| v.index() == index)
         .ok_or(DracoLoadError::BadBufferView(index))?;
 
-    let buffer_idx = bv.index();
+    let buffer_idx = bv.buffer().index();
     let buf = buffers
         .get(buffer_idx)
         .ok_or(DracoLoadError::BadBuffer(buffer_idx))?;
 
-    let start = 0;
+    let start = bv.offset();
     let end = start + bv.length();
     Ok(&buf[start..end])
 }
