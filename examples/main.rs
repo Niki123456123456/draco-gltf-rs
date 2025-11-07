@@ -1,8 +1,10 @@
-fn main() {
-    decode_test_glb("examples/test.glb").unwrap();
+
+#[tokio::main]
+async  fn main() {
+    decode_test_glb("examples/test.glb").await.unwrap();
 }
 
-pub fn decode_test_glb(
+pub async  fn decode_test_glb(
     path: &str,
 ) -> Result<draco_gltf_rs::DecodedPrimitive, Box<dyn std::error::Error>> {
     // Open the file safely
@@ -24,7 +26,15 @@ pub fn decode_test_glb(
         .ok_or("No primitives found in mesh")?;
 
     // Decode Draco data
-    let decoded = draco_gltf_rs::decode_draco(&prim, &doc, &buffer_data)?;
+    let decoded = draco_gltf_rs::decode_draco(&prim, &doc, &buffer_data, &vec![draco_gltf_rs::AttrInfo {
+            unique_id: 0,
+            dim: 3,
+            data_type: 9,
+        }, draco_gltf_rs::AttrInfo {
+            unique_id: 1,
+            dim: 2,
+            data_type: 9,
+        }],).await?;
 
     Ok(decoded)
 }
