@@ -200,7 +200,6 @@ dependencies = [
 [[package]]
 name = "draco_decoder"
 version = "0.0.10"
-source = "git+https://github.com/Niki123456123456/draco_decoder.git?branch=feat%2Fmesh_attr_infos#f672ad7cc7e5585a1b7500356bf7b6511986125e"
 dependencies = [
  "base64 0.21.7",
  "bytemuck",

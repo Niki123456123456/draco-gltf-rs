@@ -47,6 +47,7 @@ struct AttrSlice<'a> {
 }
 
 mod mapping;
+pub use draco_decoder::AttrInfo;
 use mapping::*;
 
 pub fn decode_draco(
@@ -65,31 +66,104 @@ pub fn decode_draco(
 
     let draco_bytes: &[u8] = get_buffer(document, buffers, draco_ext.buffer_view)?;
 
+    let infos: Vec<AttrInfo> = draco_decoder::mesh_attr_infos(draco_bytes);
+    for info in infos.iter() {
+        println!("{} {} {}", info.unique_id, info.dim, info.data_type);
+    }
+
+    decode_draco_advanced(p, document, buffers, &infos)
+}
+
+pub fn decode_draco_advanced(
+    p: &gltf::mesh::Primitive<'_>,
+    document: &gltf::Document,
+    buffers: &Vec<gltf::buffer::Data>,
+    infos: &Vec<AttrInfo>,
+) -> Result<DecodedPrimitive, DracoLoadError> {
+    let (draco_bytes, cfg, index_comp, index_count, vertex_count, draco_ext) =
+        prozes_in(p, document, buffers, infos)?;
+    let raw = draco_decoder::decode_mesh(draco_bytes, &cfg).ok_or(DracoLoadError::DracoDecode)?;
+    return prozes_out(
+        &raw,
+        index_comp,
+        index_count,
+        vertex_count,
+        infos,
+        p,
+        draco_ext,
+    );
+}
+
+fn prozes_in<'a>(
+    p: &'a gltf::mesh::Primitive<'_>,
+    document: &'a gltf::Document,
+    buffers: &'a Vec<gltf::buffer::Data>,
+    infos: &'a Vec<AttrInfo>,
+) -> Result<
+    (
+        &'a [u8],
+        draco_decoder::MeshDecodeConfig,
+        gltf::accessor::DataType,
+        usize,
+        usize,
+        DracoExt,
+    ),
+    DracoLoadError,
+> {
+    if p.mode() != gltf::mesh::Mode::Triangles {
+        return Err(DracoLoadError::UnsupportedMode);
+    }
+    let value = p
+        .extension_value("KHR_draco_mesh_compression")
+        .ok_or(DracoLoadError::NotDraco)?;
+    let draco_ext: DracoExt =
+        serde_json::from_value(value.clone()).map_err(|_| DracoLoadError::BadExtension)?;
+
+    let draco_bytes: &[u8] = get_buffer(document, buffers, draco_ext.buffer_view)?;
+
     let vertex_count = p
         .get(&gltf::Semantic::Positions)
         .ok_or(DracoLoadError::NoPositionAccessor)?
         .count();
 
     let indices_accessor = p.indices().ok_or(DracoLoadError::NoIndicesAccessor)?;
-    let index_count = indices_accessor.count();
+    let index_count: usize = indices_accessor.count();
     let mut index_comp: gltf::accessor::DataType = indices_accessor.data_type();
-    if index_comp == gltf::accessor::DataType::U8 { // workaround because draco_decoder has not yet logic for u8
+    if index_comp == gltf::accessor::DataType::U8 {
+        // workaround because draco_decoder has not yet logic for u8
         index_comp = gltf::accessor::DataType::U16;
     }
-    let index_bytes: usize = index_count * comp_size_bytes(index_comp);
 
-    let infos = draco_decoder::mesh_attr_infos(draco_bytes);
-
-    let mut cfg = draco_decoder::MeshDecodeConfig::new(vertex_count as u32, index_count as u32);
-    for info in &infos {
+    let mut cfg: draco_decoder::MeshDecodeConfig =
+        draco_decoder::MeshDecodeConfig::new(vertex_count as u32, index_count as u32);
+    for info in infos {
         cfg.add_attribute(info.dim, map_draco_dt(info.data_type));
     }
-    let raw = draco_decoder::decode_mesh(draco_bytes, &cfg).ok_or(DracoLoadError::DracoDecode)?;
+    return Ok((
+        draco_bytes,
+        cfg,
+        index_comp,
+        index_count,
+        vertex_count,
+        draco_ext,
+    ));
+}
+
+fn prozes_out(
+    raw: &[u8],
+    index_comp: gltf::accessor::DataType,
+    index_count: usize,
+    vertex_count: usize,
+    infos: &Vec<AttrInfo>,
+    p: &gltf::mesh::Primitive<'_>,
+    draco_ext: DracoExt,
+) -> Result<DecodedPrimitive, DracoLoadError> {
+    let index_bytes: usize = index_count * comp_size_bytes(index_comp);
     let indices = get_indices(&raw, index_bytes, index_comp)?;
 
     let mut cursor = index_bytes;
     let mut attr_blocks: Vec<AttrSlice<'_>> = Vec::with_capacity(infos.len());
-    for info in &infos {
+    for info in infos {
         let elem_size = match info.data_type {
             1 | 2 => 1,     // i8/u8
             3 | 4 => 2,     // i16/u16
