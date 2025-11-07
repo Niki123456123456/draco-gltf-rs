@@ -27,39 +27,45 @@ the `examples/main.rs` included in the repository. It opens a GLB, imports buffe
 primitive and decodes the Draco data into a `DecodedPrimitive`.
 
 ```rust
-use draco_gltf_rs::{decode_draco, DecodedPrimitive};
 
-fn decode_test_glb(path: &str) -> Result<DecodedPrimitive, Box<dyn std::error::Error>> {
-	// Open the file
-	let mut file = std::fs::File::open(path)?;
-
-	// Parse the GLB without validation (imports blob and document)
-	let glb = gltf::Gltf::from_reader_without_validation(&mut file)?;
-	let doc = glb.document;
-	let blob = glb.blob;
-
-	// Load buffers referenced by the document
-	let buffer_data = gltf::import_buffers(&doc, None, blob)?;
-
-	// Choose a mesh and primitive (example takes the last ones)
-	let mesh = doc.meshes().last().ok_or("No meshes found in GLB")?;
-	let prim = mesh.primitives().last().ok_or("No primitives found in mesh")?;
-
-	// Decode Draco-compressed data (returns DecodedPrimitive)
-	let decoded = decode_draco(&prim, &doc, &buffer_data)?;
-
-	Ok(decoded)
+#[tokio::main]
+async  fn main() {
+    decode_test_glb("examples/test.glb").await.unwrap();
 }
 
-fn main() {
-	// Replace with your GLB path
-	let decoded = decode_test_glb("examples/test.glb").expect("decode failed");
+pub async  fn decode_test_glb(
+    path: &str,
+) -> Result<draco_gltf_rs::DecodedPrimitive, Box<dyn std::error::Error>> {
+    // Open the file safely
+    let mut file = std::fs::File::open(path)?;
 
-	// Example: access positions and indices
-	if let Some(positions) = decoded.positions {
-		println!("Loaded {} vertex positions", positions.len());
-	}
-	println!("Loaded {} indices", decoded.indices.len());
+    // Read the glTF binary without validation
+    let glb = gltf::Gltf::from_reader_without_validation(&mut file)?;
+    let doc = glb.document;
+    let blob = glb.blob;
+
+    // Import all referenced buffers
+    let buffer_data = gltf::import_buffers(&doc, None, blob)?;
+
+    // Get the last mesh and primitive
+    let mesh = doc.meshes().last().ok_or("No meshes found in GLB")?;
+    let prim = mesh
+        .primitives()
+        .last()
+        .ok_or("No primitives found in mesh")?;
+
+    // Decode Draco data
+    let decoded = draco_gltf_rs::decode_draco(&prim, &doc, &buffer_data, &vec![draco_gltf_rs::AttrInfo {
+            unique_id: 0,
+            dim: 3,
+            data_type: 9,
+        }, draco_gltf_rs::AttrInfo {
+            unique_id: 1,
+            dim: 2,
+            data_type: 9,
+        }],).await?;
+
+    Ok(decoded)
 }
 ```
 

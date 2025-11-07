@@ -46,35 +46,16 @@ struct AttrSlice<'a> {
     dt: draco_decoder::AttributeDataType,
 }
 
-mod mapping;
-pub use draco_decoder::AttrInfo;
-use mapping::*;
-
-pub fn decode_draco(
-    p: &gltf::mesh::Primitive<'_>,
-    document: &gltf::Document,
-    buffers: &Vec<gltf::buffer::Data>,
-) -> Result<DecodedPrimitive, DracoLoadError> {
-    if p.mode() != gltf::mesh::Mode::Triangles {
-        return Err(DracoLoadError::UnsupportedMode);
-    }
-    let value = p
-        .extension_value("KHR_draco_mesh_compression")
-        .ok_or(DracoLoadError::NotDraco)?;
-    let draco_ext: DracoExt =
-        serde_json::from_value(value.clone()).map_err(|_| DracoLoadError::BadExtension)?;
-
-    let draco_bytes: &[u8] = get_buffer(document, buffers, draco_ext.buffer_view)?;
-
-    let infos: Vec<AttrInfo> = draco_decoder::mesh_attr_infos(draco_bytes);
-    for info in infos.iter() {
-        println!("{} {} {}", info.unique_id, info.dim, info.data_type);
-    }
-
-    decode_draco_advanced(p, document, buffers, &infos)
+pub struct AttrInfo {
+    pub unique_id: u32, // Draco attribute unique id
+    pub dim: u32,       // number of components, e.g. 3 for POSITION
+    pub data_type: u8,  // draco::DataType as a small integer
 }
 
-pub fn decode_draco_advanced(
+mod mapping;
+use mapping::*;
+
+pub async fn decode_draco(
     p: &gltf::mesh::Primitive<'_>,
     document: &gltf::Document,
     buffers: &Vec<gltf::buffer::Data>,
@@ -82,7 +63,7 @@ pub fn decode_draco_advanced(
 ) -> Result<DecodedPrimitive, DracoLoadError> {
     let (draco_bytes, cfg, index_comp, index_count, vertex_count, draco_ext) =
         prozes_in(p, document, buffers, infos)?;
-    let raw = draco_decoder::decode_mesh(draco_bytes, &cfg).ok_or(DracoLoadError::DracoDecode)?;
+    let raw = draco_decoder::decode_mesh(draco_bytes, &cfg).await.ok_or(DracoLoadError::DracoDecode)?;
     return prozes_out(
         &raw,
         index_comp,
@@ -347,10 +328,10 @@ fn fill_primitive(
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_decode_test_glb() -> Result<(), Box<dyn std::error::Error>> {
+     #[tokio::test]
+    async  fn test_decode_test_glb() -> Result<(), Box<dyn std::error::Error>> {
         let path = "examples/test.glb";
-        let primitive = decode_test_glb(path)?;
+        let primitive = decode_test_glb(path).await?;
 
         // Validate positions
         let positions = primitive.positions.ok_or("Missing positions attribute")?;
@@ -369,7 +350,7 @@ mod tests {
         Ok(())
     }
 
-    pub fn decode_test_glb(path: &str) -> Result<DecodedPrimitive, Box<dyn std::error::Error>> {
+    pub async  fn decode_test_glb(path: &str) -> Result<DecodedPrimitive, Box<dyn std::error::Error>> {
         // Open the file safely
         let mut file = std::fs::File::open(path)?;
 
@@ -389,7 +370,15 @@ mod tests {
             .ok_or("No primitives found in mesh")?;
 
         // Decode Draco data
-        let decoded = decode_draco(&prim, &doc, &buffer_data)?;
+        let decoded = decode_draco(&prim, &doc, &buffer_data, &vec![AttrInfo {
+            unique_id: 0,
+            dim: 3,
+            data_type: 9,
+        }, AttrInfo {
+            unique_id: 1,
+            dim: 2,
+            data_type: 9,
+        }],).await?;
 
         Ok(decoded)
     }
